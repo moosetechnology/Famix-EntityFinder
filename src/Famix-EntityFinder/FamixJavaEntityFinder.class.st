@@ -56,7 +56,9 @@ FamixJavaEntityFinder >> parseTypeName: name [
 	Famix does not represent arrays, but we need the information, so we use a wrapper around the type."
 
 	| typeName dimensions type |
-	typeName := self translateFieldDescriptor: name.
+	typeName := useDescriptors
+		            ifFalse: [ name ]
+		            ifTrue: [ self translateFieldDescriptor: name ].
 	dimensions := name occurrencesOf: $[.
 	type := (typeName includes: $.)
 		        ifFalse: [ self findTypeWithName: typeName ]
@@ -111,7 +113,9 @@ FamixJavaEntityFinder >> translateFieldDescriptor: fieldDescriptor [
 	dimensions := 1.
 	[ (fieldDescriptor at: dimensions) == $[ ] whileTrue: [
 		dimensions := dimensions + 1 ].
-	typeName := fieldDescriptor allButFirst: dimensions.
+	typeName := dimensions = 1
+		            ifTrue: [ fieldDescriptor ]
+		            ifFalse: [ fieldDescriptor allButFirst: dimensions - 1 ].
 
 	"Identify type name"
 	typeName := (typeName at: 1) == $L
