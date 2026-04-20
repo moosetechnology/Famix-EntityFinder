@@ -4,6 +4,9 @@ An importer helper for finding Java types represented by `FamixJavaType` and its
 Class {
 	#name : 'FamixJavaEntityFinder',
 	#superclass : 'FamixEntityFinder',
+	#instVars : [
+		'useDescriptors'
+	],
 	#classVars : [
 		'FieldDescriptors'
 	],
@@ -27,10 +30,23 @@ FamixJavaEntityFinder class >> initialize [
 		at: $Z put: 'boolean'
 ]
 
+{ #category : 'initialization' }
+FamixJavaEntityFinder >> initialize [
+
+	super initialize.
+	useDescriptors := false
+]
+
 { #category : 'enumerating' }
 FamixJavaEntityFinder >> methodNameFromSignature: signature [
 
 	^ signature copyUpTo: $(
+]
+
+{ #category : 'accessing' }
+FamixJavaEntityFinder >> model [
+
+	^ model ifNil: [ model := FamixJavaModel new ]
 ]
 
 { #category : 'enumerating' }
@@ -55,6 +71,15 @@ FamixJavaEntityFinder >> parseTypeName: name [
 
 { #category : 'matching' }
 FamixJavaEntityFinder >> signatureOf: method matches: signature [
+
+	^ useDescriptors
+		  ifTrue: [
+		  self signatureWithDescriptorsOf: method matches: signature ]
+		  ifFalse: [ super signatureOf: method matches: signature ]
+]
+
+{ #category : 'matching' }
+FamixJavaEntityFinder >> signatureWithDescriptorsOf: method matches: signature [
 	"Assume the signature includes the method name and the field descriptors of the parameters, e.g. `main([Ljava.lang.String;)`.
 	Because Famix doesn't represent arrays, use the method's signature string which contains array information.
 	However, its format is the one used in source code, e.g. `main(String[])`, so there needs to be a translation."
@@ -64,8 +89,10 @@ FamixJavaEntityFinder >> signatureOf: method matches: signature [
 		               copyFrom: method name size + 2
 		               to: signature size - 1)
 		              ifEmpty: [ #(  ) ]
-		              ifNotEmpty: [ :params | params splitOn: $, ].
+		              ifNotEmpty: [ :params | $, split: params ].
+
 	method parameters size = parameters size ifFalse: [ ^ false ].
+
 	^ method signatureWithoutParameterTypes
 	  = (String streamContents: [ :stream |
 			   stream nextPutAll: method name.
@@ -80,23 +107,26 @@ FamixJavaEntityFinder >> translateFieldDescriptor: fieldDescriptor [
 	See https://docs.oracle.com/javase/specs/jvms/se8/html/jvms-4.html#jvms-4.3.2"
 
 	| dimensions typeName |
-	dimensions := 0.
-	[ (fieldDescriptor at: dimensions + 1) == $[ ] whileTrue: [
+	"Read dimensions of ArrayType and strip brackets"
+	dimensions := 1.
+	[ (fieldDescriptor at: dimensions) == $[ ] whileTrue: [
 		dimensions := dimensions + 1 ].
-	dimensions = 0 ifTrue: [ ^ fieldDescriptor ].
 	typeName := fieldDescriptor allButFirst: dimensions.
-	typeName := FieldDescriptors
-		            at: (typeName at: 1)
-		            ifAbsent: [ "A class, e.g. Ljava.lang.String;"
-			            (typeName at: 1) == $L
-				            ifTrue: [ typeName copyFrom: 2 to: typeName size - 1 ]
-				            ifFalse: [
+
+	"Identify type name"
+	typeName := (typeName at: 1) == $L
+		            ifTrue: [ "ObjectType, e.g. Ljava.lang.String;"
+			            typeName copyFrom: 2 to: typeName size - 1 ]
+		            ifFalse: [ "BaseType, e.g. I for int"
+			            FieldDescriptors
+				            at: (typeName at: 1)
+				            ifAbsent: [
 				            self error:
 					            'Incoherent Java field descriptor: ' , typeName ] ].
-	[
-	typeName := typeName , '[]'.
-	(dimensions := dimensions - 1) > 0 ] whileTrue.
-	^ typeName
+
+	^ dimensions > 1
+		  ifTrue: [ typeName , '[]' dimensions ]
+		  ifFalse: [ typeName ]
 ]
 
 { #category : 'matching' }

@@ -7,7 +7,9 @@ Class {
 	#instVars : [
 		'model',
 		'cache',
-		'replacements'
+		'replacements',
+		'createNotFound',
+		'expectedType'
 	],
 	#category : 'Famix-EntityFinder',
 	#package : 'Famix-EntityFinder'
@@ -25,13 +27,83 @@ FamixEntityFinder >> cache [
 	^ cache ifNil: [ cache := Dictionary new ]
 ]
 
-{ #category : 'enumerating' }
-FamixEntityFinder >> detectType: block [
+{ #category : 'configuring' }
+FamixEntityFinder >> clearCache [
 
-	^ self model allTypes detect: block ifNone: nil
+	cache := Dictionary new
 ]
 
-{ #category : 'API' }
+{ #category : 'configuring' }
+FamixEntityFinder >> clearFromCache: cacheKey [
+
+	cache removeAt: cacheKey
+]
+
+{ #category : 'accessing' }
+FamixEntityFinder >> createNotFound [
+
+	^ createNotFound
+]
+
+{ #category : 'accessing' }
+FamixEntityFinder >> createNotFound: aBoolean [
+
+	createNotFound := aBoolean
+]
+
+{ #category : 'configuring' }
+FamixEntityFinder >> createWhenNotFound [
+	"When there is no search result, create the entity in the model."
+
+	self createNotFound: true
+]
+
+{ #category : 'enumerating' }
+FamixEntityFinder >> detectType: predicate [
+
+	^ (expectedType
+		   ifNotNil: [
+			   expectedType isTrait
+				   ifTrue: [ self model allUsing: expectedType ]
+				   ifFalse: [ self model allWithType: expectedType ] ]
+		   ifNil: [ self model allTypes ]) detect: predicate ifNone: [  ]
+]
+
+{ #category : 'configuring' }
+FamixEntityFinder >> errorWhenNotFound [
+	"When there is no search result, signal a FamixEntityNotFound error."
+
+	self createNotFound: false
+]
+
+{ #category : 'accessing' }
+FamixEntityFinder >> expectedType [
+
+	^ expectedType
+]
+
+{ #category : 'accessing' }
+FamixEntityFinder >> expectedType: aFamixEntityClassOrTrait [
+
+	expectedType := aFamixEntityClassOrTrait
+]
+
+{ #category : 'configuring' }
+FamixEntityFinder >> expecting: aFamixEntityClassOrTrait do: aBlock [
+	"Set the expected entity class or trait found during searches in the block.
+	Useful to optimize searches by scanning only the relevant entities,
+	and for typing entities correctly when used with `createWhenNotFound`.
+	E.g., finder expecting: FamixJavaInterface do: [ finder findTypeNamed: 'Map' ]"
+
+	| expectedAround result |
+	expectedAround := expectedType.
+	expectedType := aFamixEntityClassOrTrait.
+	result := aBlock value.
+	expectedType := expectedAround.
+	^ result
+]
+
+{ #category : 'enumerating' }
 FamixEntityFinder >> findMethodWithSignature: signature in: class [
 
 	| candidates |
@@ -50,20 +122,17 @@ FamixEntityFinder >> findMethodWithSignature: signature in: class [
 	candidates := candidates select: [ :method |
 		              self signatureOf: method matches: signature ].
 	candidates size = 1 ifTrue: [ ^ candidates anyOne ].
-	candidates ifEmpty: [
-		FamixEntityNotFound signalFor: signature in: class ].
-
-	"Consider returning a specific candidate; TODO: better"
+	candidates ifEmpty: [ ^ self methodNotFound: signature in: class ].
 	self error: 'Found multiple methods matching signature: ' , signature
 ]
 
-{ #category : 'API' }
+{ #category : 'enumerating' }
 FamixEntityFinder >> findMethodsWithName: name in: class [
 
 	^ class methods select: [ :method | method name = name ]
 ]
 
-{ #category : 'API' }
+{ #category : 'enumerating' }
 FamixEntityFinder >> findTypeNamed: name [
 	"Main API for finding a type, should not be overridden."
 
@@ -88,10 +157,29 @@ FamixEntityFinder >> findTypeWithName: name [
 	^ self detectType: [ :type | type name = name ]
 ]
 
+{ #category : 'initialization' }
+FamixEntityFinder >> initialize [
+
+	createNotFound := false
+]
+
 { #category : 'enumerating' }
 FamixEntityFinder >> methodNameFromSignature: signature [
 
 	^ signature
+]
+
+{ #category : 'entity creation' }
+FamixEntityFinder >> methodNotFound: signature in: class [
+
+	createNotFound
+		ifTrue: [
+			^ (self model newMethodNamed:
+					   (self methodNameFromSignature: signature))
+				  signature: signature;
+				  parentType: class;
+				  yourself ]
+		ifFalse: [ FamixEntityNotFound signalFor: signature in: class ]
 ]
 
 { #category : 'accessing' }
@@ -113,7 +201,7 @@ FamixEntityFinder >> parseTypeName: name [
 	^ self findTypeWithName: name
 ]
 
-{ #category : 'accessing' }
+{ #category : 'configuring' }
 FamixEntityFinder >> replace: aTypeName with: anotherTypeName [
 
 	self replacements at: aTypeName put: anotherTypeName
@@ -127,6 +215,7 @@ FamixEntityFinder >> replacements [
 
 { #category : 'accessing' }
 FamixEntityFinder >> replacements: aDictionary [
+	"Map name strings to alternate names, applied before search in model."
 
 	replacements := aDictionary
 ]
@@ -135,4 +224,12 @@ FamixEntityFinder >> replacements: aDictionary [
 FamixEntityFinder >> signatureOf: method matches: signature [
 
 	^ method signature = signature
+]
+
+{ #category : 'entity creation' }
+FamixEntityFinder >> typeNotFound: typeName [
+
+	createNotFound
+		ifTrue: [ ^ self model newTypeNamed: typeName ]
+		ifFalse: [ FamixEntityNotFound signalFor: typeName ]
 ]
