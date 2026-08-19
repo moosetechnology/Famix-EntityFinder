@@ -9,6 +9,7 @@ Class {
 		'cache',
 		'replacements',
 		'createNotFound',
+		'signalNotFound',
 		'expectedType'
 	],
 	#category : 'Famix-EntityFinder',
@@ -73,7 +74,8 @@ FamixEntityFinder >> detectType: predicate [
 FamixEntityFinder >> errorWhenNotFound [
 	"When there is no search result, signal a FamixEntityNotFound error."
 
-	self createNotFound: false
+	self createNotFound: false.
+	self signalNotFound: true
 ]
 
 { #category : 'accessing' }
@@ -139,10 +141,12 @@ FamixEntityFinder >> findTypeNamed: name [
 	| actualName |
 	actualName := self replacements at: name ifAbsent: [ name ].
 	^ self cache at: actualName ifAbsentPut: [
-		  (self parseTypeName: actualName) ifNotNil: [ :type |
-			  type isParametricEntity
-				  ifTrue: [ type genericEntity ]
-				  ifFalse: [ type ] ] ]
+		  (self parseTypeName: actualName)
+			  ifNotNil: [ :type |
+				  type isParametricEntity
+					  ifTrue: [ type genericEntity ]
+					  ifFalse: [ type ] ]
+			  ifNil: [ self typeNotFound: actualName ] ]
 ]
 
 { #category : 'enumerating' }
@@ -160,7 +164,8 @@ FamixEntityFinder >> findTypeWithName: name [
 { #category : 'initialization' }
 FamixEntityFinder >> initialize [
 
-	createNotFound := false
+	createNotFound := false.
+	signalNotFound := true
 ]
 
 { #category : 'enumerating' }
@@ -220,6 +225,18 @@ FamixEntityFinder >> replacements: aDictionary [
 	replacements := aDictionary
 ]
 
+{ #category : 'accessing' }
+FamixEntityFinder >> signalNotFound [
+
+	^ signalNotFound
+]
+
+{ #category : 'accessing' }
+FamixEntityFinder >> signalNotFound: aBoolean [
+
+	signalNotFound := aBoolean
+]
+
 { #category : 'matching' }
 FamixEntityFinder >> signatureOf: method matches: signature [
 
@@ -229,7 +246,19 @@ FamixEntityFinder >> signatureOf: method matches: signature [
 { #category : 'entity creation' }
 FamixEntityFinder >> typeNotFound: typeName [
 
-	createNotFound
-		ifTrue: [ ^ self model newTypeNamed: typeName ]
-		ifFalse: [ FamixEntityNotFound signalFor: typeName ]
+	createNotFound ifFalse: [
+		signalNotFound
+			ifTrue: [ FamixEntityNotFound signalFor: typeName ]
+			ifFalse: [ ^ nil ] ].
+
+	expectedType ifNil: [
+		self error:
+			'Cannot create missing type ' , typeName
+			, ' without an expected type' ].
+
+	^ expectedType isTrait
+		  ifFalse: [ self model add: (expectedType named: typeName) ]
+		  ifTrue: [
+			  self error:
+				  'Cannot create an entity from trait ' , expectedType name ]
 ]
